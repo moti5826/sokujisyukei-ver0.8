@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>Mario Kart Team Tournament</title>
+
+<style>
+body{font-family:sans-serif;background:#111;color:white;}
+table{border-collapse:collapse;}
+td,th{border:1px solid #555;padding:4px;text-align:center;}
+
+input{
+  width:90px;
+  background:#222;
+  color:white;
+  border:1px solid #555;
+  text-align:center;
+}
+
+.teamInput{width:120px;margin:3px;}
+.shortcutInput{width:40px;}
+
+.courseInput{
+  width:88px;
+  background:#333;
+  color:#ffd;
+  padding:2px;
+}
+
+.obs{
+  background:black;
+  padding:10px;
+  margin-top:20px;
+  width:360px;
+  font-size:20px;
+}
+
+button{margin:4px;}
+</style>
+</head>
+
+<body>
+
+<h1>マリオカートワールド即時集計機</h1>
+
+形式：
+<select id="formatSelect">
+<option value="12">12v12</option>
+<option value="8">8v8</option>
+<option value="6">6v6</option>
+<option value="4">4v4</option>
+<option value="3">3v3</option>
+<option value="2">2v2</option>
+</select>
+
+レース数：
+<select id="raceSelect"></select>
+
+自チーム名：
+<input id="myTeamInput">
+
+目標順位：
+<select id="targetRank"></select>
+
+<button onclick="init()">生成</button>
+<button onclick="resetInputs()">リセット</button>
+
+<h2 id="remainRace">残りレース: -</h2>
+<h2 id="comebackLine">逆転可能ライン: -</h2>
+<h2 id="championStatus">勝利判定: -</h2>
+
+<hr>
+
+<div id="teamNameArea"></div>
+<br>
+<div id="tableArea"></div>
+
+<h2>コピー用</h2>
+<textarea id="copyArea" rows="16" cols="45"></textarea>
+<br>
+<button onclick="copyScores()">コピー</button>
+
+<h2>OBS①</h2>
+<div id="obs1" class="obs"></div>
+
+<h2>OBS③</h2>
+<div id="obs3" class="obs"></div>
+
+<script>
+
+const POINT_TABLE=[
+15,12,10,9,9,8,8,7,7,6,6,6,
+5,5,5,4,4,4,3,3,3,2,2,1
+];
+
+let teams=[];
+let raceCount=12;
+let previousRanks={};
+let shortcutMap={};
+let firstInit=true;
+
+for(let i=8;i<=32;i++){
+  raceSelect.append(new Option(i,i));
+}
+
+/* ===== Enterで次入力へ ===== */
+function enableEnterNext(selector){
+  const list=[...document.querySelectorAll(selector)];
+  list.forEach((el,i)=>{
+    el.addEventListener("keydown",e=>{
+      if(e.key==="Enter"){
+        e.preventDefault();
+        if(list[i+1]) list[i+1].focus();
+      }
+    });
+  });
+}
+
+/* ===== 目標順位をチーム数に応じて変更 ===== */
+function updateTargetRankOptions(teamCount){
+  const select=document.getElementById("targetRank");
+  const prev=select.value;
+  select.innerHTML="";
+
+  for(let i=1;i<=teamCount;i++){
+    const opt=new Option(`${i}位`,i);
+    select.appendChild(opt);
+  }
+
+  if(prev && prev<=teamCount) select.value=prev;
+}
+
+/* ================= INIT ================= */
+
+function init(){
+
+  const teamSize=Number(formatSelect.value);
+  raceCount=Number(raceSelect.value);
+  const teamCount=24/teamSize;
+
+  teams=[];
+  previousRanks={};
+
+  updateTargetRankOptions(teamCount);
+
+  const area=document.getElementById("teamNameArea");
+  area.innerHTML="<h3>チーム設定</h3>";
+
+  for(let i=0;i<teamCount;i++){
+
+    const name=`Team${i+1}`;
+    teams.push({name,score:0});
+
+    area.innerHTML+=`
+      チーム${i+1}
+      名前:<input class="teamInput" id="teamName${i}" value="${name}">
+      SC:<input class="shortcutInput" id="shortcut${i}" maxlength="1">
+      <br>`;
+  }
+
+  if(firstInit && !myTeamInput.value){
+    myTeamInput.value="Team1";
+  }
+  firstInit=false;
+
+  setTimeout(()=>{
+    document.getElementById("teamName0")
+      .addEventListener("input",e=>{
+        myTeamInput.value=e.target.value;
+        recalcScores();
+      });
+
+    enableEnterNext(".teamInput");
+    enableEnterNext(".shortcutInput");
+  });
+
+  buildTable();
+  recalcScores();
+}
+
+/* ================= TABLE ================= */
+
+function buildTable(){
+
+  const area=document.getElementById("tableArea");
+  area.innerHTML="";
+  const table=document.createElement("table");
+
+  let head="<tr><th>順位</th>";
+  for(let r=1;r<=raceCount;r++) head+=`<th>R${r}</th>`;
+  head+="</tr>";
+
+  table.innerHTML=head;
+
+  for(let rank=1;rank<=24;rank++){
+
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td>${rank}</td>`;
+
+    for(let r=0;r<raceCount;r++){
+
+      const td=document.createElement("td");
+      const input=document.createElement("input");
+
+      input.dataset.rank=rank;
+      input.dataset.race=r;
+      input.dataset.team="";
+
+      input.addEventListener("keydown",(e)=>{
+
+        const key=e.key.toLowerCase();
+
+        if(shortcutMap[key]!==undefined){
+          e.preventDefault();
+
+          const teamIndex=shortcutMap[key];
+          input.dataset.team=String(teamIndex);
+          input.value=teams[teamIndex].name;
+
+          autoFillRace(r);
+          moveNext(input);
+          recalcScores();
+          return;
+        }
+
+        if(e.key==="Backspace"){
+          input.dataset.team="";
+          input.value="";
+          recalcScores();
+        }
+
+        if(e.key==="Enter"){
+          e.preventDefault();
+          moveNext(input);
+        }
+      });
+
+      td.appendChild(input);
+      tr.appendChild(td);
+    }
+
+    table.appendChild(tr);
+  }
+
+  const courseRow=document.createElement("tr");
+  courseRow.innerHTML="<td>コース</td>";
+
+  for(let r=0;r<raceCount;r++){
+    const td=document.createElement("td");
+    const c=document.createElement("input");
+    c.className="courseInput";
+    td.appendChild(c);
+    courseRow.appendChild(td);
+  }
+
+  table.appendChild(courseRow);
+  area.appendChild(table);
+}
+
+/* ================= LOGIC ================= */
+
+function autoFillRace(race){
+  const inputs=[...document.querySelectorAll(`input[data-race="${race}"]`)];
+  const teamSize=Number(formatSelect.value);
+  const counts={};
+
+  inputs.forEach(i=>{
+    if(i.dataset.team!==""){
+      counts[i.dataset.team]=(counts[i.dataset.team]||0)+1;
+    }
+  });
+
+  const unfinished=[];
+  teams.forEach((_,i)=>{
+    if((counts[i]||0)!==teamSize) unfinished.push(String(i));
+  });
+
+  if(unfinished.length!==1) return;
+
+  const target=unfinished[0];
+  inputs.forEach(i=>{
+    if(i.dataset.team===""){
+      i.dataset.team=target;
+      i.value=teams[target].name;
+    }
+  });
+}
+
+function resetInputs(){
+  document.querySelectorAll("input[data-rank]").forEach(i=>{
+    i.dataset.team="";
+    i.value="";
+  });
+  previousRanks={};
+  recalcScores();
+}
+
+function moveNext(input){
+  const race=Number(input.dataset.race);
+  const rank=Number(input.dataset.rank);
+
+  let next=document.querySelector(
+    `input[data-race="${race}"][data-rank="${rank+1}"]`
+  );
+
+  if(!next){
+    next=document.querySelector(
+      `input[data-race="${race+1}"][data-rank="1"]`
+    );
+  }
+
+  if(next) next.focus();
+}
+
+function getRemainingRaces(){
+  let finished=0;
+  for(let r=0;r<raceCount;r++){
+    const col=[...document.querySelectorAll(`input[data-race="${r}"]`)];
+    if(col.every(i=>i.dataset.team!=="")) finished++;
+  }
+  return raceCount-finished;
+}
+
+function calcComebackPerRace(){
+  const teamSize=Number(formatSelect.value);
+  let max=0,min=0;
+  for(let i=0;i<teamSize;i++){
+    max+=POINT_TABLE[i];
+    min+=POINT_TABLE[POINT_TABLE.length-1-i];
+  }
+  return max-min;
+}
+
+function recalcScores(){
+
+  teams.forEach(t=>t.score=0);
+  shortcutMap={};
+
+  teams.forEach((t,i)=>{
+    t.name=document.getElementById(`teamName${i}`).value;
+    const sc=document.getElementById(`shortcut${i}`).value.toLowerCase();
+    if(sc) shortcutMap[sc]=i;
+  });
+
+  document.querySelectorAll("input[data-rank]").forEach(input=>{
+    if(input.dataset.team==="") return;
+    const teamIndex=Number(input.dataset.team);
+    const rank=Number(input.dataset.rank);
+    teams[teamIndex].score+=POINT_TABLE[rank-1];
+  });
+
+  const remain=getRemainingRaces();
+  remainRace.textContent=`残りレース: ${remain}`;
+  updateDisplays(remain);
+}
+
+/* ================= DISPLAY ================= */
+
+function updateDisplays(remain){
+
+  const myTeam=myTeamInput.value;
+  const target=Number(targetRank.value);
+
+  const sorted=[...teams].sort((a,b)=>b.score-a.score);
+  const maxSwing=calcComebackPerRace()*remain;
+
+  comebackLine.textContent=`逆転可能ライン: ${maxSwing}pts以内`;
+
+  let championText="未確定";
+  if(sorted.length>=2 &&
+     sorted[0].score-sorted[1].score>maxSwing){
+      championText=`🏆 ${sorted[0].name} 勝利確定`;
+  }
+
+  championStatus.textContent=`勝利判定: ${championText}`;
+
+  obs1.innerHTML="";
+  obs3.innerHTML="";
+
+  let copyText=
+`残りレース: ${remain}
+逆転可能ライン: ${maxSwing}pts以内
+目標順位: ${target}位
+${championText}
+
+`;
+
+  document.querySelectorAll(".courseInput")
+  .forEach((c,i)=>{
+    if(c.value.trim())
+      copyText+=`R${i+1}: ${c.value}\n`;
+  });
+
+  copyText+="\n";
+
+  let newRanks={};
+
+  sorted.forEach((team,i)=>{
+
+    const diff=sorted[0].score-team.score;
+    const div=document.createElement("div");
+
+    let color="white";
+    if(diff<=15 && i!==0) color="#4aa3ff";
+    if(i===0) color="gold";
+    else if(i===1) color="silver";
+    else if(i===2) color="#cd7f32";
+    if(team.name===myTeam) color="red";
+
+    div.style.color=color;
+
+    let arrow="・";
+    if(previousRanks[team.name]!==undefined){
+      const prev=previousRanks[team.name];
+      if(prev>i) arrow="↑";
+      else if(prev<i) arrow="↓";
+      else arrow="→";
+    }
+
+    div.textContent=
+      `${arrow} ${i+1}. ${team.name} ${team.score}pts${i===0?"":` (-${diff})`}`;
+
+    obs1.appendChild(div);
+    obs3.appendChild(div.cloneNode(true));
+
+    copyText+=div.textContent+"\n";
+    newRanks[team.name]=i;
+  });
+
+  previousRanks=newRanks;
+  copyArea.value=copyText;
+}
+
+function copyScores(){
+  copyArea.select();
+  document.execCommand("copy");
+}
+
+</script>
+</body>
+</html>

@@ -35,6 +35,13 @@ input{
   font-size:20px;
 }
 
+/* ★OBS画像 */
+.obs img{
+  width:100%;
+  margin-bottom:8px;
+  display:block;
+}
+
 button{margin:4px;}
 </style>
 </head>
@@ -61,6 +68,17 @@ button{margin:4px;}
 
 目標順位：
 <select id="targetRank"></select>
+
+<br><br>
+
+<!-- ★追加：OBS画像リンク -->
+OBS画像①：
+<input id="obsImgInput1" placeholder="画像URLを貼る">
+<br>
+OBS画像③：
+<input id="obsImgInput3" placeholder="画像URLを貼る">
+
+<br><br>
 
 <button onclick="init()">生成</button>
 <button onclick="resetInputs()">リセット</button>
@@ -101,6 +119,21 @@ let firstInit=true;
 
 for(let i=8;i<=32;i++){
   raceSelect.append(new Option(i,i));
+}
+
+/* ===== OBS画像リアルタイム更新 ===== */
+obsImgInput1.addEventListener("input",updateOBSImages);
+obsImgInput3.addEventListener("input",updateOBSImages);
+
+function updateOBSImages(){
+  const url1=obsImgInput1.value.trim();
+  const url3=obsImgInput3.value.trim();
+
+  const img1=document.getElementById("obsImg1");
+  const img3=document.getElementById("obsImg3");
+
+  if(img1) img1.src=url1;
+  if(img3) img3.src=url3;
 }
 
 /* ===== Enterで次入力へ ===== */
@@ -376,6 +409,17 @@ function updateDisplays(remain){
 
   obs1.innerHTML="";
   obs3.innerHTML="";
+
+  /* ★画像を先に追加 */
+  const img1=document.createElement("img");
+  img1.id="obsImg1";
+  img1.src=obsImgInput1.value.trim();
+  obs1.appendChild(img1);
+
+  const img3=document.createElement("img");
+  img3.id="obsImg3";
+  img3.src=obsImgInput3.value.trim();
+  obs3.appendChild(img3);
 
   let copyText=
 `残りレース: ${remain}
